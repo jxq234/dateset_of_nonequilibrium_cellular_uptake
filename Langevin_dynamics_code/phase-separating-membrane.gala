@@ -1,0 +1,157 @@
+#!/usr/bin/python
+import sys
+sys.path.append('/opt/galamost4/lib')
+import galamost
+import molgen
+from optparse import OptionParser
+
+#import numpy as np
+import os
+
+global _options
+parser = OptionParser()
+parser.add_option('--gpu', dest='gpu',help='GPU on which to execute')
+(_options, args) = parser.parse_args()
+
+filename = 'Initial.xml' # initial configuration file
+randomnum = 12340
+build_method = galamost.XmlReader(filename)
+perform_config = galamost.PerformConfig(_options.gpu) # assign GPU by index
+all_info = galamost.AllInfo(build_method, perform_config) # build system information
+
+dt = 0.01
+app = galamost.Application(all_info, dt)
+
+neighbor_list = galamost.NeighborList(all_info, 3.5 ,0.05)
+neighbor_list.setRCutPair('AU', 'DI1',12)
+neighbor_list.setRCutPair('AU', 'DI2',11)
+neighbor_list.setRCutPair('AU', 'DI3',11)
+neighbor_list.setRCutPair('AU', 'DP1',12)
+neighbor_list.setRCutPair('AU', 'DP2',11)
+neighbor_list.setRCutPair('AU', 'DP3',11)
+
+rc=0.95*2**(1/6)
+rc2=2**(1/6)
+
+lj = galamost.LjForce(all_info, neighbor_list, 1.066339)
+lj.setParams('DP1', 'DP1', 1.0, 0.95, rc)
+lj.setParams('DP1', 'DP2', 1.0, 0.95, rc)
+lj.setParams('DP1', 'DP3', 1.0, 0.95, rc)
+lj.setParams('DI1', 'DI1', 1.0, 0.95, rc)
+lj.setParams('DI1', 'DI2', 1.0, 0.95, rc)
+lj.setParams('DI1', 'DI3', 1.0, 0.95, rc)
+lj.setParams('DP1', 'DI1', 1.0, 0.95, rc)
+lj.setParams('DP1', 'DI2', 1.0, 0.95, rc)
+lj.setParams('DP1', 'DI3', 1.0, 0.95, rc)
+lj.setParams('DI1', 'DP2', 1.0, 0.95, rc)
+lj.setParams('DI1', 'DP3', 1.0, 0.95, rc)
+
+lj.setEnergy_shift()
+app.add(lj)
+
+lj2 = galamost.LjForce(all_info, neighbor_list, 1.1224621)
+lj2.setParams('DP2', 'DP2', 1.0, 1, rc2)
+lj2.setParams('DP2', 'DP3', 1.0, 1, rc2)
+lj2.setParams('DP3', 'DP3', 1.0, 1, rc2)
+lj2.setParams('DI2', 'DI2', 1.0, 1, rc2)
+lj2.setParams('DI2', 'DI3', 1.0, 1, rc2)
+lj2.setParams('DI3', 'DI3', 1.0, 1, rc2)
+
+lj2.setParams('DI2', 'DP2', 1, 1, rc2)
+lj2.setParams('DI2', 'DP3', 1, 1, rc2)
+lj2.setParams('DI3', 'DP2', 1, 1, rc2)
+lj2.setParams('DI3', 'DP3', 1, 1, rc2)
+app.add(lj2)
+
+cossq = galamost.CosineSquared(all_info, neighbor_list, 3.0)
+cossq.setParams('DP2', 'DP2', 1.0, 1.7, 1.122462)
+cossq.setParams('DP2', 'DP3', 1.0, 1.7, 1.122462)
+cossq.setParams('DP3', 'DP3', 1.0, 1.7, 1.122462)
+cossq.setParams('DI2', 'DI2', 1.0, 1.7, 1.122462)
+cossq.setParams('DI2', 'DI3', 1.0, 1.7, 1.122462)
+cossq.setParams('DI3', 'DI3', 1.0, 1.7, 1.122462)
+
+cossq.setParams('DI2', 'DP2', 1.0, 1.6, 1.122462)
+cossq.setParams('DI2', 'DP3', 1.0, 1.6, 1.122462)
+cossq.setParams('DI3', 'DP2', 1.0, 1.6, 1.122462)
+cossq.setParams('DI3', 'DP3', 1.0, 1.6, 1.122462)
+app.add(cossq)
+
+
+pair = galamost.PairForceTable(all_info, neighbor_list, 100000) # (,,the number of data points)
+pair.setPotential('AU', 'DI1', "slj-eps1-r10.dat",0, 1)
+pair.setPotential('AU', 'DP1', "slj-eps1-r10.dat",0, 1)
+pair.setPotential('AU', 'DI2', "swca-eps1-r10.dat",0, 1)
+pair.setPotential('AU', 'DI3', "swca-eps1-r10.dat",0, 1)
+pair.setPotential('AU', 'DP2', "swca-eps1-r10.dat",0, 1)
+pair.setPotential('AU', 'DP3', "swca-eps1-r10.dat",0, 1)
+app.add(pair)
+
+
+bondforcefene = galamost.BondForceFene(all_info)
+bondforcefene.setParams('polymer1', 30, 1.5,0)
+app.add(bondforcefene)
+
+bondforce = galamost.BondForceHarmonic(all_info)
+bondforce.setParams('polymer2', 10, 4)
+app.add(bondforce)
+
+
+group = galamost.ParticleSet(all_info, "all") # a collection of particles
+comp_info = galamost.ComputeInfo(all_info, group)  # calculating system informations, such as temperature, pressure, and momentum
+groupMembrane = galamost.ParticleSet(all_info, ["DP1",'DP2','DP3',"DI1",'DI2','DI3'])
+#groupMembrane = galamost.ParticleSet(all_info, ["DI1",'DI2','DI3'])
+groupParticle = galamost.ParticleSet(all_info, ["AU"])
+
+T=1.1
+
+Bd = galamost.BdNvt(all_info, groupMembrane, T, 123)
+Bd.setGamma('DP1', 1)#(,gama)
+Bd.setGamma('DP2', 1)#(,gama)
+Bd.setGamma('DP3', 1)#(,gama)
+Bd.setGamma('DI1', 1)#(,gama)
+Bd.setGamma('DI2', 1)#(,gama)
+Bd.setGamma('DI3', 1)#(,gama)
+app.add(Bd)
+
+active = galamost.BdActiveNvt(all_info, groupParticle, T,1.0,1.0,2.2, 888631)#(,,temperature, tau, tauR)
+active.setGamma("AU",20)
+active.setGammar("AU",0)
+app.add(active)
+
+mdbd = galamost.ModifiedBerendsen(all_info, group,comp_info,comp_info, 0, 1000)
+app.add(mdbd)
+
+sort_method = galamost.Sort(all_info)  # memory sorting to improve performance
+sort_method.setPeriod(10)
+app.add(sort_method)
+
+DInfo = galamost.DumpInfo(all_info, comp_info, 'data.log') # output system informations, such as temperature, pressure, and momentum
+DInfo.setPeriod(500)
+DInfo.dumpPressTensor()
+#DInfo.dumpParticleForce(1)
+#DInfo.dumpParticleForce(72600)
+#DInfo.dumpParticlePosition(140454)
+app.add(DInfo)
+
+
+xml = galamost.XmlDump(all_info, group, 'system') # output the configuration files in xml format
+xml.setPeriod(50000)# (period)
+app.add(xml)
+
+xml2 = galamost.XmlDump(all_info, group, 'system2') # output the configuration files in xml format
+xml2.setPeriod(500000)# (period)
+xml2.setOutputBond(True)
+xml2.setOutputVelocity(True)
+xml2.setOutputMass(True)
+#xml2.setOutputOrientation(True)
+xml2.setOutputQuaternion(True)
+xml2.setOutputInert(True)
+app.add(xml2)
+
+
+app.run(30000000)
+
+neighbor_list.printStats()
+
+
